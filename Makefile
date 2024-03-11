@@ -9,7 +9,7 @@ GEN_RESOURCES_CLI_NAME=argocd-resources-gen
 HOST_OS:=$(shell go env GOOS)
 HOST_ARCH:=$(shell go env GOARCH)
 
-TARGET_ARCH?=linux/amd64
+TARGET_ARCH?=linux/amd64,linux/arm64
 
 VERSION=$(shell cat ${CURRENT_DIR}/VERSION)
 BUILD_DATE:=$(if $(BUILD_DATE),$(BUILD_DATE),$(shell date -u +'%Y-%m-%dT%H:%M:%SZ'))
@@ -135,6 +135,7 @@ PATH:=$(PATH):$(PWD)/hack
 
 # docker image publishing options
 DOCKER_PUSH?=false
+DOCKER_BUILD_ARGS=--load
 IMAGE_NAMESPACE?=
 # perform static compilation
 STATIC_BUILD?=true
@@ -166,6 +167,7 @@ ifeq (${DOCKER_PUSH},true)
 ifndef IMAGE_NAMESPACE
 $(error IMAGE_NAMESPACE must be set to push images (e.g. IMAGE_NAMESPACE=argoproj))
 endif
+DOCKER_BUILD_ARGS=--push
 endif
 
 ifdef IMAGE_NAMESPACE
@@ -251,10 +253,16 @@ release-cli: clean-debug build-ui
 	make BIN_NAME=argocd-linux-s390x GOOS=linux GOARCH=s390x argocd-all
 	make BIN_NAME=argocd-windows-amd64.exe GOOS=windows argocd-all
 
+.PHONY: multi-arch-builder
+multi-arch-builder:
+	if ! $(SUDO) docker buildx inspect multi-platform-builder 2>&1 >/dev/null; then \
+		$(SUDO) docker buildx create --platform=linux/arm64,linux/amd64 --name multi-platform-builder; \
+	fi
+
 .PHONY: test-tools-image
-test-tools-image:
+test-tools-image: multi-arch-builder
 ifndef SKIP_TEST_TOOLS_IMAGE
-	$(SUDO) docker build --build-arg UID=$(CONTAINER_UID) -t $(TEST_TOOLS_PREFIX)$(TEST_TOOLS_IMAGE) -f test/container/Dockerfile .
+	$(SUDO) docker build --builder=multi-platform-builder --load --build-arg UID=$(CONTAINER_UID) -t $(TEST_TOOLS_PREFIX)$(TEST_TOOLS_IMAGE) -f test/container/Dockerfile .
 	$(SUDO) docker tag $(TEST_TOOLS_PREFIX)$(TEST_TOOLS_IMAGE) $(TEST_TOOLS_PREFIX)$(TEST_TOOLS_IMAGE):$(TEST_TOOLS_TAG)
 endif
 
@@ -284,8 +292,8 @@ controller:
 	CGO_ENABLED=0 GODEBUG="tarinsecurepath=0,zipinsecurepath=0" go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/argocd-application-controller ./cmd
 
 .PHONY: build-ui
-build-ui:
-	DOCKER_BUILDKIT=1 docker build -t argocd-ui --platform=$(TARGET_ARCH) --target argocd-ui .
+build-ui: multi-arch-builder
+	DOCKER_BUILDKIT=1 docker build --builder=multi-platform-builder --load -t argocd-ui --platform=$(TARGET_ARCH) --target argocd-ui .
 	find ./ui/dist -type f -not -name gitkeep -delete
 	docker run -v ${CURRENT_DIR}/ui/dist/app:/tmp/app --rm -t argocd-ui sh -c 'cp -r ./dist/app/* /tmp/app/'
 
@@ -295,8 +303,8 @@ ifeq ($(DEV_IMAGE), true)
 # which speeds up builds. Dockerfile.dev needs to be copied into dist to perform the build, since
 # the dist directory is under .dockerignore.
 IMAGE_TAG="dev-$(shell git describe --always --dirty)"
-image: build-ui
-	DOCKER_BUILDKIT=1 docker build --platform=$(TARGET_ARCH) -t argocd-base --target argocd-base .
+image: build-ui multi-arch-builder
+	DOCKER_BUILDKIT=1 docker build --builder=multi-platform-builder --load --platform=$(TARGET_ARCH) -t argocd-base --target argocd-base .
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GODEBUG="tarinsecurepath=0,zipinsecurepath=0" go build -v -ldflags '${LDFLAGS}' -o ${DIST_DIR}/argocd ./cmd
 	ln -sfn ${DIST_DIR}/argocd ${DIST_DIR}/argocd-server
 	ln -sfn ${DIST_DIR}/argocd ${DIST_DIR}/argocd-application-controller
@@ -304,21 +312,15 @@ image: build-ui
 	ln -sfn ${DIST_DIR}/argocd ${DIST_DIR}/argocd-cmp-server
 	ln -sfn ${DIST_DIR}/argocd ${DIST_DIR}/argocd-dex
 	cp Dockerfile.dev dist
-	DOCKER_BUILDKIT=1 docker build --platform=$(TARGET_ARCH) -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) -f dist/Dockerfile.dev dist
+	DOCKER_BUILDKIT=1 docker build --builder=multi-platform-builder --load --platform=$(TARGET_ARCH) -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) -f dist/Dockerfile.dev dist
 else
-image:
-	DOCKER_BUILDKIT=1 docker build -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) --platform=$(TARGET_ARCH) .
+image: multi-arch-builder
+	DOCKER_BUILDKIT=1 docker build --builder=multi-platform-builder $(DOCKER_BUILD_ARGS) -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) --platform=$(TARGET_ARCH) .
 endif
-	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)argocd:$(IMAGE_TAG) ; fi
-
-.PHONY: armimage
-armimage:
-	docker build -t $(IMAGE_PREFIX)argocd:$(IMAGE_TAG)-arm .
 
 .PHONY: builder-image
-builder-image:
-	docker build  -t $(IMAGE_PREFIX)argo-cd-ci-builder:$(IMAGE_TAG) --target builder .
-	@if [ "$(DOCKER_PUSH)" = "true" ] ; then docker push $(IMAGE_PREFIX)argo-cd-ci-builder:$(IMAGE_TAG) ; fi
+builder-image: multi-arch-builder
+	DOCKER_BUILDKIT=1 docker build --builder=multi-platform-builder $(DOCKER_BUILD_ARGS) -t $(IMAGE_PREFIX)argo-cd-ci-builder:$(IMAGE_TAG) --target builder .
 
 .PHONY: mod-download
 mod-download: test-tools-image
