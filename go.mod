@@ -81,11 +81,7 @@ require (
 	go.opentelemetry.io/otel v1.21.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.21.0
 	go.opentelemetry.io/otel/sdk v1.21.0
-<<<<<<< HEAD
 	golang.org/x/crypto v0.16.0
-=======
-	golang.org/x/crypto v0.17.0
->>>>>>> 322410266 (chore(deps): bump golang.org/x/crypto from 0.14.0 to 0.17.0 (#16645))
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
 	golang.org/x/oauth2 v0.11.0
 	golang.org/x/sync v0.3.0
@@ -271,11 +267,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.0.0 // indirect
 	go.starlark.net v0.0.0-20220328144851-d1966c6b9fcd // indirect
 	golang.org/x/mod v0.12.0 // indirect
-<<<<<<< HEAD
 	golang.org/x/net v0.19.0
-=======
-	golang.org/x/net v0.17.0
->>>>>>> 322410266 (chore(deps): bump golang.org/x/crypto from 0.14.0 to 0.17.0 (#16645))
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0
